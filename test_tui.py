@@ -4,7 +4,9 @@ import asyncio
 import random
 import sys
 
-from game import BEER, CATALOG, COLA, MILK, WATER, Bottle, Customer, Furnace, Item, Offer, Shop
+from game import (
+    BEER, CATALOG, COLA, MILK, RENT, RENT_EVERY, WATER, Bottle, Command, Customer, Furnace, Item, Offer, Shop,
+)
 from tui import ShopApp
 
 ITEMS = {item.key: item for item in CATALOG}
@@ -104,7 +106,7 @@ async def test_buy_flow_stock_to_table_to_customer() -> None:
         show(app, "bread 上桌")
         assert app.shop.table == [ITEMS["bread"]] and app.shop.stock["bread"] == 1
         assert "桌面" in above(app) and "bread" in above(app)
-        assert "deal        ¥8" in screen(app) and app.shop.money == 100
+        assert "deal        8点" in screen(app) and app.shop.money == 100
         await deal(pilot)
         show(app, "成交")
         assert app.shop.money == 108 and app.shop.stock["bread"] == 1
@@ -165,7 +167,7 @@ async def test_seller_goods_are_starred_then_paid() -> None:
         assert shop.starred == [OFFERS[0]] and shop.cursor == 0
         assert ">*soap" in above(app) and "桌面" not in above(app) and shop.table == []
         await press(pilot, "down", "enter")
-        assert shop.starred == [OFFERS[0], OFFERS[1]] and "deal        ¥24" in screen(app)
+        assert shop.starred == [OFFERS[0], OFFERS[1]] and "deal        24点" in screen(app)
         soap = shop.stock["soap"]
         await press(pilot, "up", "enter")  # 再按一次取消标星
         assert shop.starred == [OFFERS[1]] and shop.stock["soap"] == soap and shop.money == 100
@@ -276,7 +278,7 @@ async def test_table_columns_line_up() -> None:
         columns = {next(line for line in lines if word in line).index(word) for word in ("bread", "salt")}
         assert len(columns) == 1, columns
         salt = next(line for line in lines if "salt" in line).split()
-        assert salt == ["salt", "¥4", "2", "盐"], salt
+        assert salt == ["salt", "4点", "2", "盐"], salt
 
 
 async def test_no_sends_customer_away_without_next() -> None:
@@ -293,6 +295,38 @@ async def test_no_sends_customer_away_without_next() -> None:
         assert app.shop.customer is not None
 
 
+async def landlord_day(app: ShopApp, pilot, money: int) -> None:
+    await start(app, pilot, buyer())
+    app.shop.day = RENT_EVERY - 1
+    app.shop.money = money
+    await press(pilot, "c", "l", "enter", "o", "enter")
+
+
+async def test_landlord_comes_every_seventh_day_and_only_takes_rent() -> None:
+    app = ShopApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await landlord_day(app, pilot, 300)
+        show(app, "房东来收租")
+        assert "房东" in screen(app) and f"交 {RENT} 信用点" in screen(app)
+        assert [c.key for c in app.shop.results if isinstance(c, Command)] == ["pay"]
+        await press(pilot, "n", "e", "x", "t", "enter")
+        assert app.shop.customer.name == "房东"  # 不交不走
+        await press(pilot, "escape", "p", "a", "y", "enter")
+        show(app, "交完房租")
+        assert app.shop.money == 100 and "交了房租" in screen(app)
+        assert "pay" not in screen(app) and "next" in screen(app)
+        await press(pilot, "n", "e", "x", "t", "enter")
+        assert app.shop.customer.name != "房东"
+
+
+async def test_rent_goes_into_debt_when_short() -> None:
+    app = ShopApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await landlord_day(app, pilot, 50)
+        await press(pilot, "p", "a", "enter")
+        assert app.shop.money == 50 - RENT and "欠着 150 信用点" in screen(app)
+
+
 async def test_filled_bottle_is_one_row_named_by_contents() -> None:
     app = ShopApp()
     async with app.run_test(size=(100, 40)) as pilot:
@@ -300,7 +334,7 @@ async def test_filled_bottle_is_one_row_named_by_contents() -> None:
         await press(pilot, "c", "o", "l")
         show(app, "瓶装可乐")
         rows = [line for line in below(app).splitlines()[1:] if line.strip()]
-        assert len(rows) == 1 and rows[0].split()[1:] == ["cola", "¥15", "2000ml", "可乐", "容量", "2000ml"], rows
+        assert len(rows) == 1 and rows[0].split()[1:] == ["cola", "15点", "2000ml", "可乐", "容量", "2000ml"], rows
 
 
 async def test_search_water_or_bottle_without_clutter() -> None:
@@ -317,8 +351,8 @@ async def test_search_water_or_bottle_without_clutter() -> None:
         show(app, "搜 bottle")
         rows = [line for line in below(app).splitlines()[1:] if line.strip()]
         assert [r[2:].split() for r in rows] == [  # 去掉行首的光标和选中标记
-            ["bottle", "¥2", "1", "空瓶", "容量", "2000ml"],
-            ["bottle", "¥1", "2", "空瓶", "容量", "750ml"],  # 两个 750ml 空瓶合成一行
+            ["bottle", "2点", "1", "空瓶", "容量", "2000ml"],
+            ["bottle", "1点", "2", "空瓶", "容量", "750ml"],  # 两个 750ml 空瓶合成一行
         ], rows
         gear = len(app.shop.gear)
         await press(pilot, "down", "enter")  # 从合并的那行拿走一个
@@ -326,7 +360,7 @@ async def test_search_water_or_bottle_without_clutter() -> None:
         assert "空瓶  容量 750ml" in above(app)
         await press(pilot, "b", "o", "t")
         rows = [line for line in below(app).splitlines()[1:] if line.strip()]
-        assert rows[1][2:].split()[:3] == ["bottle", "¥1", "1"], rows
+        assert rows[1][2:].split()[:3] == ["bottle", "1点", "1"], rows
         await press(pilot, "escape", "水")
         assert len([line for line in below(app).splitlines()[1:] if line.strip()]) == 2
         app.shop.gear = [Bottle(750)]
@@ -449,7 +483,7 @@ async def test_furnace_load_smelt_and_take_out() -> None:
         assert "- ore" in above(app) and "- battery" in above(app) and "enter 熔炼" in above(app)
         table = above(app).splitlines()
         rows = [next(line for line in table if word in line) for word in ("furnace", "- ore", "- battery")]
-        assert len({line.index("¥") for line in rows}) == 1, rows  # 价格列对齐
+        assert len({line.index(price) for line, price in zip(rows, ("50点", "6点", "10点"))}) == 1, rows  # 价格列对齐
         await press(pilot, "enter")
         show(app, "熔炼")
         assert furnace.contents == [ITEMS["ingot"]] and "炼出 1 块金属锭" in screen(app)
@@ -584,7 +618,7 @@ async def test_side_explains_customer_offer() -> None:
     app = ShopApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await start(app, pilot, seller())
-        assert "客人要价 ¥3" in side(app) and "Enter:选中" in side(app)
+        assert "客人要价 3 信用点" in side(app) and "Enter:选中" in side(app)
         await press(pilot, "enter")
         assert app.shop.current == OFFERS[0] and "Enter:取消选中" in side(app)
 

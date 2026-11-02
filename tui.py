@@ -7,7 +7,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
-from game import DEAL, Bottle, Command, Furnace, Inside, Item, Offer, Shop
+from game import DEAL, PAY, Bottle, Command, Furnace, Inside, Item, Offer, Shop, credits
 from manual import PAGES
 
 BG = "#14110f"
@@ -40,6 +40,11 @@ def columns(key: str, price: str, stock: str, note: str) -> str:
     return f"{pad(key, 12)}{pad(price, 7)}{pad(stock, 12)}{note}"
 
 
+def points(amount: int) -> str:
+    """表格的价格列放不下"信用点",只写"点"."""
+    return f"{amount}点"
+
+
 def goods_label(entry: Item | Bottle | Furnace | Offer, shop: Shop) -> str:
     thing = entry.item if isinstance(entry, Offer) else entry
     if isinstance(thing, Bottle) and thing.liquid:
@@ -55,14 +60,14 @@ def goods_label(entry: Item | Bottle | Furnace | Offer, shop: Shop) -> str:
     else:
         price, stock, note = thing.price, str(shop.stock[thing.key]), thing.name
     if isinstance(entry, Offer):
-        price, note = entry.ask, f"{note}  售价 ¥{thing.price}"
-    return columns(thing.key, f"¥{price}", stock, note)
+        price, note = entry.ask, f"{note}  售价 {credits(thing.price)}"
+    return columns(thing.key, points(price), stock, note)
 
 
 def goods_lines(entry: Item | Bottle | Furnace | Inside | Offer, index: int, shop: Shop) -> list[Line]:
     if isinstance(entry, Inside):
         item = entry.item
-        return [(index, row(columns(f"  - {item.key}", f"¥{item.price}", "1", item.name), shop.cursor == index))]
+        return [(index, row(columns(f"  - {item.key}", points(item.price), "1", item.name), shop.cursor == index))]
     # 库存里同名的东西不算选中
     picked = index < len(shop.upper) and (entry in shop.selected or entry in shop.starred)
     return [(index, row(goods_label(entry, shop), shop.cursor == index, picked))]
@@ -70,7 +75,9 @@ def goods_lines(entry: Item | Bottle | Furnace | Inside | Offer, index: int, sho
 
 def command_label(command: Command, shop: Shop) -> str:
     if command is DEAL:
-        return columns(command.key, f"¥{shop.deal_total}", "", command.name)
+        return columns(command.key, points(shop.deal_total), "", command.name)
+    if command is PAY:
+        return columns(command.key, points(shop.customer.rent), "", command.name)
     return columns(command.key, "", "", command.name)
 
 
@@ -219,7 +226,7 @@ class ShopApp(App):
     def draw(self) -> None:
         shop = self.shop
         count = sum(shop.stock.values()) + len(shop.gear) + len(shop.table)
-        self.query_one("#status", Static).update(f"第 {shop.day} 天   ¥{shop.money}   库存 {count} 件")
+        self.query_one("#status", Static).update(f"第 {shop.day} 天   {credits(shop.money)}   库存 {count} 件")
         self.query_one("#note", Static).update(Text(shop.note))
 
         talk = Text()

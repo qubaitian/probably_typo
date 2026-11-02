@@ -78,6 +78,7 @@ class Customer:
     wants: Item | None = None  # 客人来买时才有,成交后清空
     ml: int = 0  # 要的是液体时,要多少
     offers: tuple[Offer, ...] = ()  # 客人来卖时才有,成交一件少一件
+    rent: int = 0  # 房东来收租时才有,交了清零
 
 
 CATALOG = [
@@ -108,11 +109,20 @@ LIQUIDS = [WATER, COLA, BEER, MILK]
 
 BOTTLE_PRICES = {750: 1, 2000: 2}
 
+
+def credits(amount: int) -> str:
+    """钱的写法. 表格里挤,只写"点",见 tui.py."""
+    return f"{amount} 信用点"
+
+
 DEAL = Command("deal", "成交")
 NEXT = Command("next", "下一个客户")
 NO = Command("no", "打发走")
 CLOSE = Command("close", "关门")
 OPEN = Command("open", "开门")
+RENT = 200
+RENT_EVERY = 7  # 每 7 天开门第一个进来的是房东
+PAY = Command("pay", f"交 {credits(RENT)}")
 
 NAMES = ["阿姨", "大爷", "小学生", "外卖员", "程序员", "保安", "隔壁老板"]
 BUY_LINES = ["来个{}.", "有{}吗?我要一个.", "老板,拿个{}.", "急用,{}有没有?"]
@@ -232,6 +242,10 @@ class Shop:
         return bool(self.customer and (self.customer.wants or self.customer.offers))
 
     @property
+    def rent_due(self) -> bool:
+        return bool(self.customer and self.customer.rent)
+
+    @property
     def deal_total(self) -> int:
         if self.customer and self.customer.offers:
             return sum(offer.ask for offer in self.starred)
@@ -286,9 +300,11 @@ class Shop:
         self.clear_query()
 
     def deal(self) -> None:
-        if not self.trading:
+        if self.rent_due:
+            self._pay_rent()
+        elif not self.trading:
             return
-        if self.customer.offers:
+        elif self.customer.offers:
             self._buy_offers()
         else:
             self._sell_wanted()
@@ -377,6 +393,8 @@ class Shop:
             return [OPEN]
         if not self.customer:
             return [NEXT, CLOSE]
+        if self.rent_due:
+            return [PAY]  # 房东不走,也不让关门
         return [DEAL, NEXT, NO, CLOSE] if self.trading else [NEXT, NO, CLOSE]
 
     def _upper_hits(self) -> list[int]:
@@ -397,7 +415,7 @@ class Shop:
             self.cursor = len(upper)
 
     def _run(self, command: Command) -> None:
-        if command is DEAL:
+        if command in (DEAL, PAY):
             self.deal()
         elif command is NEXT:
             if self.customer:
@@ -420,14 +438,18 @@ class Shop:
         self.table = []
         self.selected = []
         self.starred = []
-        self.note = f"第 {self.day} 天打烊. 进账 ¥{self.earned},支出 ¥{self.spent}."
+        self.note = f"第 {self.day} 天打烊. 进账 {credits(self.earned)},支出 {credits(self.spent)}."
 
     def _open(self) -> None:
         self.day += 1
         self.earned = self.spent = 0
         self.is_open = True
         self.note = ""
-        self._next_customer()
+        if self.day % RENT_EVERY:
+            self._next_customer()
+        else:
+            self.customer = Customer("房东", f"七天到了. 租金 {credits(RENT)}.", rent=RENT)
+            self.clear_query()
 
     def _put_on_table(self, thing: Item | Bottle | Furnace) -> None:
         if not self.is_open:
@@ -467,7 +489,7 @@ class Shop:
             self.selected = [s for s in self.selected if s in self.table]
             self.money += thing.price
             self.earned += thing.price
-            self.note = f"+¥{thing.price}"
+            self.note = f"+{credits(thing.price)}"
             self.customer.wants = None
             self.customer.line = "谢了."
         elif self.table:
@@ -491,7 +513,16 @@ class Shop:
         self.starred = []
         self.customer.offers = tuple(o for o in self.customer.offers if o not in offers)
         self.customer.line = "谢了,剩下的还收吗?" if self.customer.offers else "谢了."
-        self.note = f"-¥{total}  收下{', '.join(o.item.name for o in offers)}."
+        self.note = f"-{credits(total)}  收下{', '.join(o.item.name for o in offers)}."
+
+    def _pay_rent(self) -> None:
+        rent = self.customer.rent
+        self.money -= rent  # 钱不够也得交,先欠着
+        self.spent += rent
+        self.customer.rent = 0
+        self.customer.line = "下个七天再来."
+        paid = f"-{credits(rent)}  "
+        self.note = paid + ("交了房租." if self.money >= 0 else f"钱不够,欠着 {credits(-self.money)}.")
 
     def _next_customer(self) -> None:
         self.starred = []  # 上一位的货跟人走,桌上自己的东西留着

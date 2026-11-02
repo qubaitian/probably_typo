@@ -1,6 +1,6 @@
 """右边栏的内容. 加一页手册或设置,就往 PAGES 里加一项:(标题, shop -> 文字)."""
 
-from game import Bottle, Command, Furnace, Inside, Item, Offer, Shop
+from game import Bottle, Command, Furnace, Inside, Item, Offer, Shop, credits
 
 GOODS = {
     "battery": "熔炉的能源,一节配一块矿石.",
@@ -25,6 +25,7 @@ COMMANDS = {
     "no": "送走客人,但不叫下一位. 店里空着,可以慢慢收拾桌子.",
     "close": "结束这一天,桌上的东西全部回库存.",
     "open": "开始新的一天.",
+    "pay": "交房租. 房东每 7 天来一次,交了才走.",
 }
 
 OPERATIONS = """\
@@ -53,11 +54,11 @@ RECIPES = """\
 def _describe_goods(thing: Item | Bottle | Furnace, shop: Shop) -> list[str]:
     if isinstance(thing, Bottle):
         inside = f"里面:{thing.liquid.name} {thing.ml}ml" if thing.liquid else "里面:空的"
-        return [f"瓶子,容量 {thing.capacity}ml", inside, f"连瓶售价 ¥{thing.price}"]
+        return [f"瓶子,容量 {thing.capacity}ml", inside, f"连瓶售价 {credits(thing.price)}"]
     if isinstance(thing, Furnace):
         names = ", ".join(item.name for item in thing.contents)
         return ["熔炉", f"里面:{names or '空的'}", '配方见"配方"页']
-    return [thing.name, f"售价 ¥{thing.price},库存 {shop.stock[thing.key]}", GOODS[thing.key]]
+    return [thing.name, f"售价 {credits(thing.price)},库存 {shop.stock[thing.key]}", GOODS[thing.key]]
 
 
 def describe(shop: Shop) -> str:
@@ -67,7 +68,7 @@ def describe(shop: Shop) -> str:
     if isinstance(entry, Command):
         lines = [entry.name, COMMANDS[entry.key]]
     elif isinstance(entry, Offer):
-        lines = [*_describe_goods(entry.item, shop), f"客人要价 ¥{entry.ask}"]
+        lines = [*_describe_goods(entry.item, shop), f"客人要价 {credits(entry.ask)}"]
     elif isinstance(entry, Inside):
         lines = [f"{entry.item.name},在熔炉里", GOODS[entry.item.key]]
     else:
