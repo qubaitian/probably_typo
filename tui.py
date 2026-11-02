@@ -70,7 +70,7 @@ def goods_lines(entry: Item | Bottle | Furnace | Inside | Offer, index: int, sho
 
 def command_label(command: Command, shop: Shop) -> str:
     if command is DEAL:
-        return columns(command.key, f"¥{shop.deal_total}", "", f"{command.name}  tab")
+        return columns(command.key, f"¥{shop.deal_total}", "", command.name)
     return columns(command.key, "", "", command.name)
 
 
@@ -186,8 +186,6 @@ class ShopApp(App):
             shop.move(1)
         elif event.key == "enter":
             shop.enter()
-        elif event.key == "tab":
-            shop.deal()
         elif event.key == "backspace":
             shop.backspace()
         elif event.key == "escape":

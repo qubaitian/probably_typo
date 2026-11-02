@@ -46,6 +46,11 @@ async def press(pilot, *keys: str) -> None:
     await pilot.pause()
 
 
+async def deal(pilot) -> None:
+    """搜出 deal 命令再 enter."""
+    await press(pilot, "d", "e", "a", "l", "enter")
+
+
 async def start(app: ShopApp, pilot, customer: Customer | None) -> None:
     app.shop = Shop(random.Random(1))
     app.shop.customer = customer
@@ -100,7 +105,7 @@ async def test_buy_flow_stock_to_table_to_customer() -> None:
         assert app.shop.table == [ITEMS["bread"]] and app.shop.stock["bread"] == 1
         assert "桌面" in above(app) and "bread" in above(app)
         assert "deal        ¥8" in screen(app) and app.shop.money == 100
-        await press(pilot, "tab")
+        await deal(pilot)
         show(app, "成交")
         assert app.shop.money == 108 and app.shop.stock["bread"] == 1
         assert app.shop.table == [] and app.shop.customer.name == "阿姨"
@@ -135,14 +140,16 @@ async def test_wrong_item_stays_on_table() -> None:
     app = ShopApp()
     async with app.run_test(size=(100, 40)) as pilot:
         await start(app, pilot, buyer())
-        await press(pilot, "tab")
+        await deal(pilot)
         assert "先把东西放上桌" in screen(app)
-        await press(pilot, "s", "a", "enter", "tab")
+        await press(pilot, "s", "a", "enter")
+        await deal(pilot)
         show(app, "给错货")
         assert "这不是我要的" in screen(app)
         assert app.shop.money == 100 and app.shop.table == [ITEMS["salt"]]
         assert app.shop.customer.wants
-        await press(pilot, "b", "r", "enter", "tab")  # 桌上多放别的不碍事
+        await press(pilot, "b", "r", "enter")
+        await deal(pilot)  # 桌上多放别的不碍事
         assert app.shop.money == 108 and app.shop.table == [ITEMS["salt"]]
 
 
@@ -151,7 +158,7 @@ async def test_seller_goods_are_starred_then_paid() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await start(app, pilot, seller())
         shop = app.shop
-        await press(pilot, "tab")
+        await deal(pilot)
         assert "先选中要收的货" in screen(app)
         await press(pilot, "enter")
         show(app, "标星一件")
@@ -162,11 +169,13 @@ async def test_seller_goods_are_starred_then_paid() -> None:
         soap = shop.stock["soap"]
         await press(pilot, "up", "enter")  # 再按一次取消标星
         assert shop.starred == [OFFERS[1]] and shop.stock["soap"] == soap and shop.money == 100
-        await press(pilot, "enter", "tab")
+        await press(pilot, "enter")
+        await deal(pilot)
         show(app, "成交两件")
         assert shop.money == 76 and shop.stock["tea"] == 2 and shop.stock["soap"] == soap + 1
         assert shop.starred == [] and shop.customer.offers == OFFERS[2:]
-        await press(pilot, "enter", "tab")
+        await press(pilot, "enter")
+        await deal(pilot)
         assert "钱不够" in screen(app) and shop.money == 76 and shop.starred == [OFFERS[2]]
         assert ">*rice" in above(app)
 
@@ -178,7 +187,8 @@ async def test_seller_can_sell_a_filled_bottle() -> None:
         await start(app, pilot, Customer("大爷", "收不收?", offers=(Offer(bottle, 4),)))
         show(app, "收瓶子")
         assert "beer" in above(app) and "750ml" in above(app)
-        await press(pilot, "enter", "tab")
+        await press(pilot, "enter")
+        await deal(pilot)
         assert app.shop.money == 96 and bottle in app.shop.gear
 
 
@@ -205,7 +215,8 @@ async def test_search_jumps_to_upper_and_still_lists_stock() -> None:
         assert app.shop.starred == [offers[1]] and app.shop.query == "" and app.shop.table == []
         await press(pilot, "b", "r")
         assert "> bread" in above(app)
-        await press(pilot, "enter", "tab")
+        await press(pilot, "enter")
+        await deal(pilot)
         assert app.shop.money == 91 and app.shop.customer.offers == offers[:1]
         await press(pilot, "z")
         assert "没有这个东西" in screen(app)
@@ -355,10 +366,10 @@ async def test_pour_by_selecting_source_then_target() -> None:
         app.shop.table = [small]
         app.shop.gear.append(big)
         app.shop.customer = Customer("大爷", "来个2000ml水.", wants=WATER, ml=2000)
-        await press(pilot, "tab")
+        await deal(pilot)
         assert "这不是我要的" in screen(app) and app.shop.table == [small]
         app.shop.customer = Customer("大爷", "来个750ml水.", wants=WATER, ml=750)
-        await press(pilot, "tab")
+        await deal(pilot)
         assert app.shop.money == 104 and app.shop.table == [] and small not in app.shop.gear
 
 
@@ -702,7 +713,7 @@ async def test_small_window_keeps_cursor_on_crowded_table() -> None:
 async def test_random_input_never_breaks() -> None:
     app = ShopApp()
     rng = random.Random(3)
-    keys = ["up", "down", "enter", "enter", "tab", "backspace", "escape", *"abcdeilmnorstuw"]
+    keys = ["up", "down", "enter", "enter", "backspace", "escape", *"abcdeilmnorstuw"]
     async with app.run_test(size=(80, 24)) as pilot:
         for _ in range(300):
             await pilot.press(rng.choice(keys))
